@@ -1,0 +1,135 @@
+#!/bin/bash
+# The cause of creation of this script : i like to encrypt my important files so fast! its better to handle it with a simple script instead repeating long commands... so you can do it on so many files without packaging them in a tarball file! just with a simple loop : 
+# check-encrypt -p 'password' -f $file -a
+# you see its easy! (the while loop is that -a switch it says all files.)
+# created for my daily usage . virtual demon
+
+clear
+# default pass is your drive serial!
+password=$(udevadm info --query=all --name=/dev/sda | grep ID_SERIAL | sed 's/.*=//g' | head -n 1)
+# the variable that says file is encrypted with gpg or not 
+function isEncrypted {
+	file $1 2> /dev/null | grep GPG && fileIsEncrypted=1
+}
+# check file situation and do what you want:
+# if the file is encrypted
+function fileCheck {
+password=$1
+file=$2
+remove=$3
+# check the file is encrypted with gpg or not
+isEncrypted $file
+# main process and code of this script
+if [[ -n $fileIsEncrypted ]] ; then
+	#normalFile=$(echo $file | sed 's/.gpg//g')
+	gpg --yes --batch --passphrase=$password $file > /dev/null 2>&1
+	# if the password is wrong!
+	if [ ! $? = 0 ] ; then
+		echo "Password is wrong !"
+		exit
+	fi
+	# if remove option used
+	if [[ -n $remove ]] ; then
+		echo "Removing $file"
+		rm -f $file
+	fi
+# if the file is not encrypted
+elif [[ -z $fileIsEncrypted ]] ; then
+	gpg --yes --batch --passphrase=$password -c $file > /dev/null 2>&1
+	# if remove option is used
+	if [[ -n $remove ]] ; then
+		echo "Removing $file"
+		rm -f $file
+	fi
+fi
+}
+# switches : -p => password, -f => file, -a => all,-r remove processed files, -h => help
+function usage {
+	cat <<EOF
+	This script used for encrypting or decrypting files with gpg automatically!
+	check-encrypt [options]
+
+	-a : understand as ALL means all files in that directory!(it's just a while loop)
+	-p : used to decrypt or encrypt files with a speciall password
+	-f : used to set a file that you want to encrypt or decrypt it
+	-r : remove the files after you used them to decrypt or encrypt
+	-h : print this help message
+	
+	example guide :
+       	check-encrypt -p 'password' -f path/to/file -r
+	check-encrypt -p 'password' -a -r 
+	check-encrypt -p 'password' -a
+	check-encrypt -f path/to/file -r 
+ 	check-encrypt -f path/to/file
+	check-encrypt -a -r
+	check-encrypt -a 
+EOF
+}
+if [[ -z $1 || $1 = @(-h|--help) ]]; then
+  usage
+  exit $(( $# ? 0 : 1 ))
+fi
+# controling switches with geopts ! 
+while getopts p:,f:,a,r,h parameters ; do
+	case $parameters in
+		p)
+			passInput=1
+			password=$OPTARG
+		;;
+		f)
+			inputFile=1
+			fileAddress=$OPTARG
+		;;
+		a)
+			whileLoop=1
+		;;
+		r)
+			removeFiles=1
+		;;
+		
+	esac
+done
+# check the file existence
+[[ -n $fileAddress && ! -e $fileAddress ]] && echo "No such $fileAddress exist!" && exit 1
+# check is there any directory exist in the pwd or not!
+if [[ -n $(ls -l | awk '{print $1}' | grep ^d) ]] ; then 
+      echo "There's a directory in $pwd !" 
+fi
+# function for whileLoop to check the all files! 
+function fixListLoop {
+	password=$1
+	remove=$2
+	cd $(pwd)
+	tempFile=filesuniq$(date +%y-%m-%d)
+	ls > $tempFile
+	while IFS= read -r file; do
+		echo "processing on $file"
+		if [[ -n $remove ]] ; then
+			fileCheck $password $file 1	
+		else
+			fileCheck $password $file
+		fi
+	done < $tempFile
+	rm $tempFile 2> /dev/null
+}
+# check arguments and act just like that you want!
+if [[ -n $whileLoop && -n $removeFiles && -z  $inputFile ]] ; then
+	fixListLoop $password 1
+elif [[ -n $inputFile && -n $removeFiles && -z $whileLoop ]] ; then
+	fileCheck $password $fileAddress 1
+elif [[ -n $whileLoop && -n $removeFiles ]] ; then
+	fixListLoop $password 1
+elif [[ -n $inputFile && -n $removeFiles ]] ; then
+	fileCheck $password $fileAddress 1
+elif [[ -n $whileLoop && -z $inputFile ]] ; then
+	fixListLoop $password 
+elif [[ -n $inputFile && -z $whileLoop ]] ; then
+	fileCheck $password $fileAddress
+# wrong usage
+elif [[ -z $inputFile && -z $whileLoop ]] ; then
+	echo -e "Please give me some files..." && exit 1
+else
+	usage && exit 1
+fi
+
+
